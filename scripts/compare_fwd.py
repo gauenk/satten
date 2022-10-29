@@ -114,8 +114,9 @@ def main():
     default_cfg = configs.default()
 
     # -- grid --
-    ws,wt,k,nreps = [7],[3],[7],[3]
-    exp_lists = {"ws":ws,"wt":wt,"k":k,"nreps":nreps}
+    ps = [13]
+    ws,wt,k,nreps = [13],[3],[15],[3]
+    exp_lists = {"ps":ps,"ws":ws,"wt":wt,"k":k,"nreps":nreps}
     exps = cache_io.mesh_pydicts(exp_lists) # create mesh
     cache_io.append_configs(exps,default_cfg) # merge the two
 
