@@ -58,8 +58,7 @@ def run_exp(_cfg):
     timer = ExpTimer()
 
     # -- satten --
-    # modules = {"satten":satten,"n3net":n3net}#,"nat":nat}
-    modules = {"n3net":n3net}#,"nat":nat}
+    modules = {"satten":satten,"n3net":n3net,"nat":nat}
     for module_name,module in modules.items():
         init_search = getattr(module,'init_search')
         get_search_config = getattr(module,'extract_search_config')
@@ -115,7 +114,7 @@ def main():
     default_cfg = configs.default()
 
     # -- grid --
-    ws,wt,k,nreps = [15],[3],[7],[3]
+    ws,wt,k,nreps = [7],[3],[7],[3]
     exp_lists = {"ws":ws,"wt":wt,"k":k,"nreps":nreps}
     exps = cache_io.mesh_pydicts(exp_lists) # create mesh
     cache_io.append_configs(exps,default_cfg) # merge the two
