@@ -1,4 +1,6 @@
 
+# -- our search fxn --
+import dnls
 
 # -- extracting config --
 from functools import partial
@@ -33,25 +35,24 @@ def init_search(*args,**kwargs):
     bs = optional(kwargs,'bs',-1)
     dil = optional(kwargs,'dilation',1)
     chnls = optional(kwargs,'chnls',-1)
-    name = optional(kwargs,'sfxn','l2')
+    name = optional(kwargs,'sfxn','prod')
 
     # -- break here if init --
     if init: return
 
     # -- init model --
-    search = dnls.init("%s_with_heads" % name, None, None,
-                       k=k, ps=ps, pt=pt, ws=ws, wt=wt, nheads=nheads,
-                       chnls=chnls,dilation=dil, stride0=stride0,
-                       stride1=stride1, use_k=True, use_adj=True,
-                       use_k=True, use_adj=True, reflect_bounds=True,
-                       search_abs=False, full_ws=False, nbwd=nbwd, exact=exact,
-                       h0_off=0,w0_off=0,h1_off=0,w1_off=0,remove_self=False,
-                       anchor_self=False,rbwd=rbwd)
+    search = dnls.search.init("%s_with_heads" % name, None, None,
+                              k=k, ps=ps, pt=pt, ws=ws, wt=wt, nheads=nheads,
+                              chnls=chnls,dilation=dil, stride0=stride0,
+                              stride1=stride1, nbwd=nbwd, rbwd=rbwd, exact=exact,
+                              use_k=True, use_adj=True, reflect_bounds=True,
+                              search_abs=False, full_ws=False, anchor_self=False,
+                              h0_off=0,w0_off=0,h1_off=0,w1_off=0,remove_self=False)
     return search
 
 
 # -- run to populate "_fields" --
-get_search(__init=True)
+init_search(__init=True)
 
 def extract_search_config(cfg):
     # -- auto populated fields --

@@ -7,6 +7,7 @@ import pandas as pd
 pp = pprint.PrettyPrinter(indent=4)
 from pathlib import Path
 from functools import partial
+from easydict import EasyDict as edict
 
 # -- cache --
 import cache_io
@@ -17,10 +18,15 @@ import data_hub
 # -- optical flow --
 from satten import flow
 
+# -- timer --
+from satten.utils.timer import ExpTimer,TimeIt
+
 # -- package misc --
 from satten import utils
-from satten.utils.metrics import compute_psnrs,compute_ssims
+from satten.utils import optional
 from satten.configs import compare_fwd as configs
+from satten.utils.metrics import compute_psnrs,compute_ssims
+
 
 # -- attention packages --
 import nat
@@ -34,32 +40,64 @@ def run_exp(_cfg):
     cache_io.exp_strings2bools(cfg)
     utils.set_seed(cfg.seed)
     root = (Path(__file__).parents[0] / ".." ).absolute()
+    device = cfg.device
 
     # -- load data --
     data,loaders = data_hub.sets.load(cfg)
     frame_start = optional(cfg,"frame_start",0)
     frame_end = optional(cfg,"frame_end",-1)
-    indices = data_hub.filter_subseq(data,cfg.vid_name,frame_start,frame_end)
+    indices = data_hub.filter_subseq(data[cfg.dset],cfg.vid_name,frame_start,frame_end)
 
     # -- iterate over data --
-    sample = data.tr[indices[0]]
-    clean,noisy = sample['clean'],sample['noisy']
+    sample = data[cfg.dset][indices[0]]
+    clean,noisy = sample['clean'][None,:],sample['noisy'][None,:]
+    clean,noisy = clean.to(device),noisy.to(device)
+    B,T,C,H,W = clean.shape
 
     # -- init timer --
     timer = ExpTimer()
 
     # -- satten --
-    modules = [nat,n3net,satten]
-    for module in modules:
-        search = getattr(module,'search')
+    # modules = {"satten":satten,"n3net":n3net}#,"nat":nat}
+    modules = {"n3net":n3net}#,"nat":nat}
+    for module_name,module in modules.items():
+        init_search = getattr(module,'init_search')
         get_search_config = getattr(module,'extract_search_config')
         search_cfg = get_search_config(cfg)
-        with timer(str(module)):
-            dists,inds = search(noisy,**search_cfg)
+        search = init_search(**search_cfg)
+        print(search)
+        ntotal = T * ((H-1)//search.stride0+1) * ((W-1)//search.stride0+1)
+        for rep in range(cfg.nreps):
+            if rep == 0:
+                dists,inds = search(noisy,0,ntotal)
+            else:
+                with TimeIt(timer,module_name + "_%d" % rep):
+                    dists,inds = search(noisy,0,ntotal)
 
     # -- info --
     print("Running timer.")
     print(timer)
+
+    # -- results --
+    results = edict()
+    for name,time in timer.items():
+        print(name)
+        results[name] = time
+    print(results)
+
+    return results
+
+def append_ave_std(records):
+    module_names = ["satten","n3net","nat"]
+    # module_names = ["satten"]
+    for mname in module_names:
+        df = records.filter(like=mname)
+        if df.empty: break
+        field = "ave_%s"%mname
+        records[field] = df.mean(1)
+        field = "std_%s"%mname
+        records[field] = df.std(1)
+    return records
 
 def main():
 
@@ -71,13 +109,14 @@ def main():
     # -- get cache --
     cache_name = "compare_fwd" # current!
     cache = cache_io.ExpCache(".cache_io",cache_name)
+    cache.clear()
 
     # -- grab default --
     default_cfg = configs.default()
 
     # -- grid --
-    ws,wt,k = [29],[3],[7]
-    exp_lists = {"ws":ws,"wt":wt,"k":k}
+    ws,wt,k,nreps = [15],[3],[7],[3]
+    exp_lists = {"ws":ws,"wt":wt,"k":k,"nreps":nreps}
     exps = cache_io.mesh_pydicts(exp_lists) # create mesh
     cache_io.append_configs(exps,default_cfg) # merge the two
 
@@ -103,7 +142,12 @@ def main():
 
     # -- load results --
     records = cache.load_flat_records(exps)
-    print(records)
+    records = append_ave_std(records)
+    summary = records.filter(like='ave')
+    summary_std = records.filter(like='std')
+    print("-=-=-=-=- Summary -=-=-=-=-")
+    print(summary)
+    print(summary_std)
 
 if __name__ == "__main__":
     main()
