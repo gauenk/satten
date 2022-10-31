@@ -8,6 +8,7 @@ pp = pprint.PrettyPrinter(indent=4)
 from pathlib import Path
 from functools import partial
 from easydict import EasyDict as edict
+from einops import repeat
 
 # -- cache --
 import cache_io
@@ -27,11 +28,11 @@ from satten.utils import optional
 from satten.configs import compare_fwd as configs
 from satten.utils.metrics import compute_psnrs,compute_ssims
 
-
 # -- attention packages --
 import nat
 import n3net
 import satten
+import uformer
 
 def run_exp(_cfg):
 
@@ -51,6 +52,7 @@ def run_exp(_cfg):
     # -- iterate over data --
     sample = data[cfg.dset][indices[0]]
     clean,noisy = sample['clean'][None,:],sample['noisy'][None,:]
+    noisy = repeat(noisy,'b t c h w -> b t (r c) h w',r=cfg.creps)
     clean,noisy = clean.to(device),noisy.to(device)
     B,T,C,H,W = clean.shape
 
@@ -58,13 +60,13 @@ def run_exp(_cfg):
     timer = ExpTimer()
 
     # -- satten --
-    modules = {"satten":satten,"n3net":n3net,"nat":nat}
+    modules = {"satten":satten,"n3net":n3net,"nat":nat,"uformer":uformer}
     for module_name,module in modules.items():
         init_search = getattr(module,'init_search')
         get_search_config = getattr(module,'extract_search_config')
+        cfg.use_tiled = "tiled" in module_name
         search_cfg = get_search_config(cfg)
         search = init_search(**search_cfg)
-        print(search)
         ntotal = T * ((H-1)//search.stride0+1) * ((W-1)//search.stride0+1)
         for rep in range(cfg.nreps):
             if rep == 0:
@@ -87,8 +89,7 @@ def run_exp(_cfg):
     return results
 
 def append_ave_std(records):
-    module_names = ["satten","n3net","nat"]
-    # module_names = ["satten"]
+    module_names = ["satten","n3net","nat","uformer"]
     for mname in module_names:
         df = records.filter(like=mname)
         if df.empty: break
@@ -108,15 +109,21 @@ def main():
     # -- get cache --
     cache_name = "compare_fwd" # current!
     cache = cache_io.ExpCache(".cache_io",cache_name)
-    cache.clear()
+    # cache.clear()
 
     # -- grab default --
     default_cfg = configs.default()
+    # default_cfg.isize = "100_400"
+    # default_cfg.isize = "400_400"
+    # default_cfg.isize = "423_454"
+    default_cfg.cropmode = "center"
 
     # -- grid --
-    ps = [13]
-    ws,wt,k,nreps = [13],[3],[15],[3]
-    exp_lists = {"ps":ps,"ws":ws,"wt":wt,"k":k,"nreps":nreps}
+    isize = ["100_400","none"]
+    ps,creps = [7],[1,3,5,10]
+    ws,wt,k,nreps = [5],[0],[15],[3]
+    exp_lists = {"ps":ps,"ws":ws,"wt":wt,"k":k,"isize":isize,
+                 "nreps":nreps,"creps":creps}
     exps = cache_io.mesh_pydicts(exp_lists) # create mesh
     cache_io.append_configs(exps,default_cfg) # merge the two
 
@@ -142,12 +149,16 @@ def main():
 
     # -- load results --
     records = cache.load_flat_records(exps)
-    records = append_ave_std(records)
-    summary = records.filter(like='ave')
-    summary_std = records.filter(like='std')
-    print("-=-=-=-=- Summary -=-=-=-=-")
-    print(summary)
-    print(summary_std)
+    for isize,sdf in records.groupby("isize"):
+        for creps,cdf in sdf.groupby("creps"):
+            df = cdf
+            df = append_ave_std(df)
+            summary = df.filter(like='ave')
+            summary_std = df.filter(like='std')
+            print("-=-=-=-=- Summary -=-=-=-=-")
+            print(" (creps: %d, isize: %s) " % (creps,isize) )
+            print(summary)
+            print(summary_std)
 
 if __name__ == "__main__":
     main()
