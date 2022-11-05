@@ -16,6 +16,7 @@ from pathlib import Path
 from functools import partial
 from easydict import EasyDict as edict
 from einops import repeat
+import torch as th
 
 # -- cache --
 import cache_io
@@ -62,11 +63,12 @@ def run_exp(_cfg):
 
     # -- search --
     search_cfg = satten.extract_search_config(cfg)
-    search_cfg.match_shape = True
+    search_cfg.output_as_vid_shape = True
     search = satten.init_search(**search_cfg)
 
     # -- dists --
     dists_cfg = satten.extract_dists_config(cfg)
+    dists_cfg.output_as_vid_shape = True
     dists = satten.init_dists(**dists_cfg)
 
 
@@ -84,38 +86,54 @@ def run_exp(_cfg):
     K_m = cfg.memory_k
     T_s = cfg.stream_nframes
     K_s = cfg.stream_k
+    K_search = cfg.k
 
     # -- load data --
     data,loaders = data_hub.sets.load(cfg)
     frame_start = optional(cfg,"frame_start",0)
     frame_end = optional(cfg,"frame_end",-1)
-    indices = data_hub.filter_subseq(data[cfg.dset],cfg.vid_name,frame_start,frame_end)
+    indices = data_hub.filter_subseq(data[cfg.dset],cfg.vid_name,
+                                     frame_start,frame_end)
     sample = data[cfg.dset][indices[0]]
     clean,noisy = sample['clean'][None,:],sample['noisy'][None,:]
     clean,noisy = clean.to(device),noisy.to(device)
+    clean,noisy = clean/255.,noisy/255.
     print("clean.shape: ",clean.shape)
 
     # -- compute non-local search --
     search_cfg.k = K_m
-    dists_mem,inds_mem = satten.run_search(noisy[:T_m],**search_cfg)
+    dists_mem,inds_mem = satten.run_search(noisy[:,:T_m],**search_cfg)
     print("dists_mem.shape: ",dists_mem.shape) # B x T_m x K_m x 3 x H x W
 
     # -- estimate next non-local indices & compute quality --
-    inds_pred = imodel(inds_mem,dists_mem,T_s,K_s)
-    dists_pred = satten.run_dists(noisy[T_m:T_m+T_s],pred_inds,**search_cfg)
+    dists_cfg.k = K_s
+    inds_pred = imodel(inds_mem,dists_mem)
+    print("inds_pred.shape: ",inds_pred.shape)
+    dists_pred,inds_pred_topk = satten.run_dists(noisy[:,T_m:T_m+T_s],
+                                                 inds_pred,dists_cfg)
+    print("dists_pred.shape: ",dists_pred.shape)
 
     # -- compute true non-local indices --
     search_cfg.k = K_s
-    dists_gt,inds_gt = satten.run_search(noisy[T_m:T_m+T_s],**search_cfg)
+    dists_gt,inds_gt = satten.run_search(noisy[:,T_m:T_m+T_s],**search_cfg)
+    # print("dists_gt.shape: ",dists_gt.shape)
+    # print(inds_gt)
+    # exit(0)
 
     # -- plot examples --
     locs_pred = {"dists":dists_pred,"inds":inds_pred}
     locs_gt = {"dists":dists_gt,"inds":inds_gt}
-    fnames = satten.plot_examples(locs_gt,locs_pred,noisy,T_m,T_s,cfg.save_dir)
+    fnames = "name"
+    # fnames = satten.plot_examples(locs_gt,locs_pred,noisy,T_m,T_s,cfg.save_dir)
+    print(dists_gt)
+    print(dists_pred)
 
     # -- compare predicted vs true --
-    dims = list(range(2,dists_gt.ndim))
-    dists_error = th.mean((dists_gt - dists_pred)**2,dims=dims).item()
+    dims = [0,1,] + list(range(3,dists_gt.ndim))
+    dists_error = th.mean((dists_gt - dists_pred)**2,dim=dims)
+    print(dists_error.shape)
+    print("inds_gt.shape: ",inds_gt.shape)
+    print("inds_pred.shape: ",inds_pred.shape)
     inds_acc = th.mean(th.all(inds_gt == inds_pred,-1).float(),dims).item()
 
     # -- denoise [predicted state] --
@@ -200,7 +218,6 @@ def main():
 
     # -- load results --
     records = cache.load_flat_records(exps)
-    print(records)
 
 if __name__ == "__main__":
     main()

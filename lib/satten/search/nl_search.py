@@ -1,5 +1,6 @@
 # -- misc --
 from easydict import EasyDict as edict
+from einops import rearrange,repeat
 
 # -- our search fxn --
 import dnls
@@ -37,6 +38,7 @@ def init_search(*args,**kwargs):
     bs = optional(kwargs,'bs',-1)
     dil = optional(kwargs,'dilation',1)
     chnls = optional(kwargs,'chnls',-1)
+    output_as_vid_shape = optional(kwargs,'output_as_vid_shape',True)
     name = optional(kwargs,'sfxn','prod')
 
     # -- break here if init --
@@ -68,12 +70,23 @@ def extract_search_config(cfg):
 # -- run non-local search --
 def run_search(vid,**kwargs):
 
+    # -- unpack --
+    output_as_vid_shape = _optional(kwargs,'output_as_vid_shape',True)
+
     # -- init --
     search = init_search(**kwargs)
 
     # -- search --
     B,T,C,H,W = vid.shape
     stride0 = search.stride0
-    ntotal = B * T * ((H-1)//stride0+1) * ((W-1)//stride0+1)
+    nH = (H-1)//stride0+1
+    nW = (W-1)//stride0+1
+    ntotal = B * T * nH * nW
     dists,inds = search(vid,0,ntotal)
+
+    # -- reshape --
+    if output_as_vid_shape:
+        dists = rearrange(dists,'b H (t h w) k -> b H t h w k',h=nH,w=nW)
+        inds = rearrange(inds,'b H (t h w) k tr -> b H t h w k tr',h=nH,w=nW)
+
     return dists,inds

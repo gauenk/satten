@@ -24,13 +24,20 @@ def load_imodel(*args,**kwargs):
     optional = partial(optional_full,init)
 
     # -- relevant configs --
+    dim = optional(kwargs,'imodel_dim',32)
     k = optional(kwargs,'k',-1)
+    ws = optional(kwargs,'ws',9)
+    T_m = optional(kwargs,'memory_nframes',5)
+    K_m = optional(kwargs,'memory_k',15)
+    T_s = optional(kwargs,'stream_nframes',1)
+    K_s = optional(kwargs,'stream_k',7)
+    alpha = optional(kwargs,'alpha',0.99)
 
     # -- break here if init --
     if init: return
 
     # -- init model --
-    imodel = IndexModel(k=k)
+    imodel = IndexModel(dim,ws,T_m,K_m,T_s,K_s,alpha)
     return imodel
 
 # -- run to populate "_fields" --

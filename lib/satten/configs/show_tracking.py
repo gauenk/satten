@@ -13,7 +13,7 @@ def default():
     cfg.dset = "tr"
     cfg.sigma = 30.
     cfg.vid_name = "sheep"
-    cfg.nframes = 3
+    cfg.nframes = 10
     cfg.frame_start = 0
     cfg.frame_end = cfg.frame_start+cfg.nframes-1
     cfg.frame_end = -1 if cfg.nframes == 0 else cfg.frame_end
@@ -21,12 +21,14 @@ def default():
     # -- streaming --
     cfg.memory_nframes = 5
     cfg.memory_k = 15
-    cfg.stream_nframes = 4
-    cfg.stream_k = 7
+    cfg.stream_nframes = 1
+    cfg.stream_k = 10
 
     # -- search --
+    cfg.k = 7
     cfg.stride0 = 4
     cfg.stride1 = 1
+    cfg.ws = 9
 
     # -- pick model --
     cfg.model_name = "uformer"
